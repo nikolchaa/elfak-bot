@@ -108,7 +108,7 @@ MAX_INITIAL_POSTS = 3   # max posts to announce on first run
 - **Date filtering**: Only articles published after December 1, 2025 are posted to Discord.
 - **Serbian date parsing**: Supports Cyrillic month names and parses time ("у HH:MM") for precise timestamps.
 
-## 🎨 Discord Embed Format (Updated)
+## 🎨 Discord Embed Format
 
 - **Title**: Article title (clickable link)
 - **URL**: Direct link to the article
@@ -121,7 +121,7 @@ MAX_INITIAL_POSTS = 3   # max posts to announce on first run
 - **Bot name**: "Elfak SIP"
 - **Avatar**: Elfak logo (if public URL is available)
 
-## 🛡️ How it works (Updated)
+## 🛡️ How it works
 
 1. **Scraping**: Fetches all 15 SIP categories
 2. **Article extraction**: Finds all `/article/` links and extracts titles, dates, and content
@@ -141,7 +141,7 @@ MAX_INITIAL_POSTS = 3   # max posts to announce on first run
 - **Smart caching**: GitHub Actions uses pip cache
 - **Minimal overhead**: Typically completes in 5-15 seconds
 
-## 🐛 Troubleshooting (Updated)
+## 🐛 Troubleshooting
 
 - **No avatar?** Make sure the logo URL is a public PNG/JPG. Discord may not support SVG or private links.
 - **Wrong timestamp?** Check that the article date is in the expected Serbian format (e.g. "у HH:MM").
