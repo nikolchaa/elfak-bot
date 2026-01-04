@@ -10,13 +10,17 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Set
 from urllib.parse import urljoin, urlparse
 
 import httpx
 from selectolax.parser import HTMLParser
+
+# Serbia timezone (CET/CEST - UTC+1/UTC+2)
+# For simplicity, use UTC+1 (CET) - Serbia doesn't observe DST uniformly in all contexts
+SERBIA_TZ = timezone(timedelta(hours=1))
 
 
 # Configuration
@@ -31,18 +35,18 @@ LIST_PAGES = [
     {"url": "https://sip.elfak.ni.ac.rs/category/mas", "category": "МАС"},
     {"url": "https://sip.elfak.ni.ac.rs/category/das", "category": "ДАС"},
     {"url": "https://sip.elfak.ni.ac.rs/category/obrasci", "category": "Обрасци"},
-    {"url": "https://sip.elfak.ni.ac.rs/category/literatura", "category": "Литература"},
-    {"url": "https://sip.elfak.ni.ac.rs/category/rezultati", "category": "Резултати"},
+    # {"url": "https://sip.elfak.ni.ac.rs/category/literatura", "category": "Литература"},
+    # {"url": "https://sip.elfak.ni.ac.rs/category/rezultati", "category": "Резултати"},
     {"url": "https://sip.elfak.ni.ac.rs/category/konkursi", "category": "Конкурси"},
     {"url": "https://sip.elfak.ni.ac.rs/category/ostalo", "category": "Остало"},
-    {"url": "https://sip.elfak.ni.ac.rs/category/pomoc", "category": "Помоћ"},
+    # {"url": "https://sip.elfak.ni.ac.rs/category/pomoc", "category": "Помоћ"},
     {"url": "https://sip.elfak.ni.ac.rs/category/kursevi", "category": "Курсеви"},
 ]
 STATE_FILE = Path("state.json")
 DISCORD_WEBHOOK = os.getenv("DISCORD_WEBHOOK")
 RATE_LIMIT_SLEEP = 0.5  # seconds between article fetches
 DISCORD_SEND_DELAY = 2.0  # seconds between Discord webhook posts (avoid rate limits)
-CUTOFF_DATE = datetime(2025, 12, 1, tzinfo=timezone.utc)  # Only fetch articles after this date
+CUTOFF_DATE = datetime(2025, 12, 1, tzinfo=SERBIA_TZ)  # Only fetch articles after this date
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
 
@@ -185,17 +189,17 @@ def parse_serbian_date(date_string: str) -> Optional[datetime]:
                 if time_match:
                     hour = int(time_match.group(1))
                     minute = int(time_match.group(2))
-                    return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
+                    return datetime(year, month, day, hour, minute, tzinfo=SERBIA_TZ)
                 else:
                     # No time specified, use midnight
-                    return datetime(year, month, day, tzinfo=timezone.utc)
+                    return datetime(year, month, day, tzinfo=SERBIA_TZ)
         
         # Fallback: try to find just the year
         year_match = re.search(r'(\d{4})', date_string)
         if year_match:
             year = int(year_match.group(1))
             # Assume it's recent (current month/day)
-            return datetime(year, 1, 1, tzinfo=timezone.utc)
+            return datetime(year, 1, 1, tzinfo=SERBIA_TZ)
     
     except Exception as e:
         print(f"⚠️  Failed to parse date '{date_string}': {e}")
@@ -1083,7 +1087,7 @@ async def main():
         
         # Sort articles by date (oldest first)
         print(f"\n📤 Sorting {len(articles_to_send)} articles by date...")
-        articles_to_send.sort(key=lambda a: parse_serbian_date(a.date) or datetime.min.replace(tzinfo=timezone.utc))
+        articles_to_send.sort(key=lambda a: parse_serbian_date(a.date) or datetime.min.replace(tzinfo=SERBIA_TZ))
         
         # Send to Discord in chronological order
         print(f"\n✉️  Sending {len(articles_to_send)} articles to Discord...")
