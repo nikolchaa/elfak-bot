@@ -635,20 +635,45 @@ def normalize_content_from_container(container) -> str:
 def extract_paragraph_with_formatting(elem) -> str:
     """
     Extract text from paragraph or list item with Markdown formatting
-    Handles bold, links, and nested elements
+    Handles bold, links, <br> tags, and nested elements while preserving spacing
     """
-    # Get base text
-    para_text = elem.text(strip=False)
-    replacements = []  # List of (original_text, markdown_replacement) tuples
+    # Clone the element HTML and replace <br> with spaces
+    if hasattr(elem, 'html'):
+        html_str = elem.html
+    else:
+        html_str = str(elem)
     
-    # Process links first (they take priority)
+    # Replace all <br> variants with space
+    html_str = re.sub(r'<br\s*/?>', ' ', html_str, flags=re.IGNORECASE)
+    
+    # Re-parse to get element without <br> tags
+    temp_parser = HTMLParser(html_str)
+    elem = temp_parser.css_first('*') or temp_parser.root
+    
+    # Extract formatted text
+    parts = []
+    
+    # Process strong/bold tags
+    for strong in elem.css("strong, b"):
+        strong_text = strong.text(strip=True)
+        if not strong_text:
+            continue
+        
+        # Check if contains link
+        has_link = strong.css_first("a") is not None
+        if has_link:
+            continue  # Will be handled by link processing
+        
+        parts.append((strong_text, f"**{strong_text}**"))
+    
+    # Process links
     for link in elem.css("a"):
         link_text = link.text(strip=True)
         href = link.attributes.get("href", "")
         
         # Skip "Opširnije" links
         if link_text.lower() in ["opširnije", "više", "detaljnije", "pročitaj više"]:
-            para_text = para_text.replace(link_text, "")
+            parts.append((link_text, ""))
             continue
         
         if href and "/article/" not in href:
@@ -660,51 +685,33 @@ def extract_paragraph_with_formatting(elem) -> str:
             else:
                 url = urljoin(BASE_URL, href)
             
-            # Check if link is inside a strong tag OR contains a strong tag
-            parent = link.parent
-            is_bold_parent = parent and parent.tag in ["strong", "b"]
-            has_bold_child = link.css_first("strong, b") is not None
+            # Check if contains or is in bold
+            has_bold = link.css_first("strong, b") is not None
+            parent_bold = link.parent and link.parent.tag in ["strong", "b"]
             
             if link_text:
-                if is_bold_parent or has_bold_child:
-                    # Bold link: [**text**](url)
-                    markdown_link = f"[**{link_text}**]({url})"
+                if has_bold or parent_bold:
+                    markdown = f"[**{link_text}**]({url})"
                 else:
-                    # Normal link: [text](url)
-                    markdown_link = f"[{link_text}]({url})"
-                replacements.append((link_text, markdown_link))
+                    markdown = f"[{link_text}]({url})"
+                parts.append((link_text, markdown))
             else:
-                # Just URL
-                replacements.append((href, url))
+                parts.append((href, url))
     
-    # Process strong/bold tags (but skip if already processed as part of link)
-    for strong in elem.css("strong, b"):
-        strong_text = strong.text(strip=True)
-        if not strong_text:
-            continue
-        
-        # Check if this strong contains a link (already handled above)
-        has_link = strong.css_first("a") is not None
-        
-        if not has_link and strong_text:
-            # Check if this text was already replaced (part of a link)
-            already_replaced = any(strong_text in repl[1] for repl in replacements)
-            if not already_replaced:
-                replacements.append((strong_text, f"**{strong_text}**"))
+    # Get full text
+    full_text = elem.text(strip=False)
     
-    # Apply replacements in order (longest first to avoid partial replacements)
-    replacements.sort(key=lambda x: len(x[0]), reverse=True)
-    for original, markdown in replacements:
-        # Only replace first occurrence to avoid issues
-        para_text = para_text.replace(original, markdown, 1)
+    # Apply replacements (longest first to avoid partial matches)
+    parts.sort(key=lambda x: len(x[0]), reverse=True)
+    for original, replacement in parts:
+        if original:
+            full_text = full_text.replace(original, replacement, 1)
     
-    # Clean up the text
-    para_text = para_text.strip()
+    # Clean up whitespace
+    full_text = re.sub(r'  +', ' ', full_text)
+    full_text = full_text.strip()
     
-    # Clean up multiple spaces
-    para_text = re.sub(r'  +', ' ', para_text)
-    
-    return para_text
+    return full_text
 
 
 async def send_discord_message(client: httpx.AsyncClient, article: Article):
