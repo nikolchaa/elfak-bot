@@ -170,13 +170,16 @@ def parse_serbian_date(date_string: str) -> Optional[datetime]:
     try:
         # Pattern: day. month_name, year. у hour:minute
         # Examples: "24. Нов, 2025. у 13:52", "Сре, 31. Дец, 2025. у 12:48"
-        pattern = r'(\d{1,2})\.\s*([А-Яа-яЁё]+).*?(\d{4})'
+        # Include full Serbian Cyrillic range: А-Я, а-я, Ё, ё, and Serbian-specific: Ј, Љ, Њ, Ћ, Ђ, Џ
+        pattern = r'(\d{1,2})\.\s*([А-ЯЁЂЃЄЅІЇЈЉЊЋЌЎЏа-яёђѓєѕіїјљњћќўџ]+).*?(\d{4})'
         match = re.search(pattern, date_string)
         
         if match:
             day = int(match.group(1))
             month_name = match.group(2).lower()
             year = int(match.group(3))
+            
+            print(f"      🔍 Regex matched: day={day}, month_name='{month_name}', year={year}")
             
             # Look up month number
             month = SERBIAN_MONTHS.get(month_name)
@@ -193,11 +196,16 @@ def parse_serbian_date(date_string: str) -> Optional[datetime]:
                 else:
                     # No time specified, use midnight
                     return datetime(year, month, day, tzinfo=SERBIA_TZ)
+            else:
+                print(f"      ⚠️  Month '{month_name}' not found in SERBIAN_MONTHS dict")
+        else:
+            print(f"      ⚠️  Regex pattern did not match date string: '{date_string}'")
         
         # Fallback: try to find just the year
         year_match = re.search(r'(\d{4})', date_string)
         if year_match:
             year = int(year_match.group(1))
+            print(f"      ⚠️  Using fallback: year {year}, defaulting to Jan 1")
             # Assume it's recent (current month/day)
             return datetime(year, 1, 1, tzinfo=SERBIA_TZ)
     
@@ -409,10 +417,13 @@ async def parse_article_page(client: httpx.AsyncClient, url: str, category: str)
         date_text = date_container.text(strip=True)
         if date_text and any(char.isdigit() for char in date_text):
             date = date_text
+            print(f"   📅 Extracted date: {date}")
     
     # Fallback to generic date extraction
     if not date:
         date = extract_date(tree)
+        if date:
+            print(f"   📅 Extracted date (fallback): {date}")
     
     # Extract image - look for main content images
     image_url = None
@@ -449,13 +460,14 @@ async def parse_article_page(client: httpx.AsyncClient, url: str, category: str)
     if not content or len(content) < 50:
         content = normalize_content(tree)
     
-    # If content is still minimal but we have an image, that's okay
-    if (not content or len(content) < 50) and not image_url:
-        print(f"⚠️  No content or image extracted from: {url}")
-        content = "(Садржај није доступан)"
-    elif not content or len(content) < 50:
-        # We have an image but minimal text
-        content = "(Погледајте слику испод)"
+    # If content is still empty after all extraction attempts
+    if not content or len(content) == 0:
+        if image_url:
+            print(f"⚠️  No text content extracted, but image found: {url}")
+            content = "(Погледајте слику испод)"
+        else:
+            print(f"⚠️  No content or image extracted from: {url}")
+            content = "(Садржај није доступан)"
     
     return Article(url=url, title=title, date=date, content=content, image_url=image_url, category=category)
 
@@ -554,49 +566,66 @@ def normalize_content_from_container(container) -> str:
     for unwanted in container.css("nav, footer, aside, [class*='sidebar'], [class*='nav'], .comments, script, style"):
         unwanted.decompose()
     
-    # Process in document order - walk through top-level block elements
-    for elem in container.iter():
-        # Only process direct block-level children to maintain order
-        if elem == container:
-            continue
+    # Recursively extract content from parent element
+    def get_content_blocks(parent):
+        """Recursively extract content from parent element"""
+        results = []
         
-        tag = elem.tag
+        # Get direct children only using CSS selector
+        # Use > to select only direct children
+        direct_children = []
+        for child in parent.iter():
+            if child.parent == parent and child != parent:
+                direct_children.append(child)
         
-        # Skip if this element is nested inside another block element we'll process
-        parent = elem.parent
-        if parent and parent != container and parent.tag in ["p", "ul", "ol", "div", "table", "h1", "h2", "h3", "h4", "h5", "h6"]:
-            continue
+        for child in direct_children:
+            tag = child.tag
+            
+            # Headings
+            if tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+                text = child.text(strip=True)
+                if text and text.lower() not in ["opširnije", "više", "detaljnije"]:
+                    results.append(f"\n**{text}**\n")
+            
+            # Paragraphs
+            elif tag == "p":
+                para_text = extract_paragraph_with_formatting(child)
+                if para_text and len(para_text) > 3:
+                    results.append(para_text + "\n\n")
+            
+            # Lists
+            elif tag in ["ul", "ol"]:
+                for li in child.css("li"):
+                    li_text = extract_paragraph_with_formatting(li)
+                    if li_text:
+                        results.append(f"• {li_text}\n")
+                results.append("\n")
+            
+            # Tables
+            elif tag == "table":
+                table_text = convert_table_to_text(child)
+                if table_text:
+                    results.append(f"\n{table_text}\n\n")
+            
+            # Divs - recursively process or extract text
+            elif tag == "div":
+                # Check if div has direct block-level children
+                div_direct_children = [c for c in child.iter() if c.parent == child and c != child]
+                has_blocks = any(c.tag in ["p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "table"] 
+                               for c in div_direct_children)
+                
+                if has_blocks:
+                    # Recursively process this div
+                    results.extend(get_content_blocks(child))
+                else:
+                    # Leaf div - extract text directly
+                    div_text = extract_paragraph_with_formatting(child)
+                    if div_text and len(div_text) > 3:
+                        results.append(div_text + "\n\n")
         
-        # Headings
-        if tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
-            text = elem.text(strip=True)
-            if text and text.lower() not in ["opširnije", "više", "detaljnije"]:
-                content_parts.append(f"\n**{text}**\n")
-        
-        # Paragraphs
-        elif tag == "p":
-            para_text = extract_paragraph_with_formatting(elem)
-            if para_text and len(para_text) > 3:
-                content_parts.append(para_text)
-                content_parts.append("\n\n")
-        
-        # Unordered/ordered lists
-        elif tag in ["ul", "ol"]:
-            for li in elem.css("li"):
-                li_text = extract_paragraph_with_formatting(li)
-                if li_text:
-                    content_parts.append(f"• {li_text}\n")
-            # Add spacing after list
-            content_parts.append("\n")
-        
-        # Tables
-        elif tag == "table":
-            # Skip if nested
-            if parent and parent.tag == "table":
-                continue
-            table_text = convert_table_to_text(elem)
-            if table_text:
-                content_parts.append(f"\n{table_text}\n\n")
+        return results
+    
+    content_parts = get_content_blocks(container)
     
     # Join and normalize
     raw = "".join(content_parts)
@@ -688,7 +717,6 @@ async def send_discord_message(client: httpx.AsyncClient, article: Article):
         return
     
     EMBED_DESCRIPTION_LIMIT = 4096
-    EMBED_FIELD_VALUE_LIMIT = 1024
     
     embeds = []
     
@@ -698,250 +726,90 @@ async def send_discord_message(client: httpx.AsyncClient, article: Article):
         parsed_date = parse_serbian_date(article.date)
         if parsed_date:
             timestamp = parsed_date.isoformat()
+            print(f"   ⏰ Parsed timestamp: {parsed_date} -> {timestamp}")
         else:
             timestamp = datetime.now(timezone.utc).isoformat()
+            print(f"   ⚠️  Failed to parse date '{article.date}', using current time")
     else:
         timestamp = datetime.now(timezone.utc).isoformat()
+        print(f"   ⚠️  No date available, using current time")
     
-    # Build main embed
-    if len(article.content) <= EMBED_DESCRIPTION_LIMIT:
-        # Single embed with all content
-        embed = {
-            "author": {
-                "name": "SIP Elfak",
-                "url": BASE_URL,
-            },
-            "title": article.title[:256],
-            "url": article.url,
-            "description": article.content,
-            "color": 0x0099FF,  # Brighter blue
-            "timestamp": timestamp,
-        }
-        
-        # Add metadata fields (date + category)
-        fields = []
-        if article.date:
-            fields.append({
-                "name": "📅 Објављено",
-                "value": article.date,
-                "inline": True
-            })
-        if article.category:
-            fields.append({
-                "name": "📂 Категорија",
-                "value": article.category,
-                "inline": True
-            })
-        
-        if fields:
-            embed["fields"] = fields
-        
-        # Add image or thumbnail
-        if article.image_url:
-            # If content is minimal (just image post), use large image
-            if len(article.content) < 100:
-                embed["image"] = {"url": article.image_url}
-            else:
-                # Otherwise use thumbnail to save space
-                embed["thumbnail"] = {"url": article.image_url}
-        
-        embed["footer"] = {
-            "text": "SIP Elfak Bot"
-        }
-        
-        embeds.append(embed)
-    else:
-        # Content is too long - split intelligently
-        # Strategy: Use description for intro + fields for sections
-        
-        # Find logical break points (headings with **)
-        parts = article.content.split("\n**")
-        
-        if len(parts) > 1:
-            # We have headings - use them as fields
-            intro = parts[0].strip()
-            
-            # First embed with intro
-            first_embed = {
-                "author": {
-                    "name": "SIP Elfak",
-                    "url": BASE_URL,
-                },
-                "title": article.title[:256],
-                "url": article.url,
-                "description": intro[:EMBED_DESCRIPTION_LIMIT] if intro else "Опширан чланак испод:",
-                "color": 0x0099FF,
-                "timestamp": timestamp,
-            }
-            
-            # Add metadata fields (date + category)
-            fields = []
-            if article.date:
-                fields.append({
-                    "name": "📅 Објављено",
-                    "value": article.date,
-                    "inline": True
-                })
-            if article.category:
-                fields.append({
-                    "name": "📂 Категорија",
-                    "value": article.category,
-                    "inline": True
-                })
-            
-            if fields:
-                first_embed["fields"] = fields
-            
-            # Add image
-            if article.image_url:
-                first_embed["thumbnail"] = {"url": article.image_url}
-            
-            first_embed["footer"] = {"text": "SIP Elfak Bot • 1/..."}
-            embeds.append(first_embed)
-            
-            # Add remaining sections as fields in continuation embeds
-            current_fields = []
-            
-            for i, part in enumerate(parts[1:], start=1):
-                # Re-add the ** that was removed by split
-                section = "**" + part
-                
-                # Try to extract heading and content
-                lines = section.split("\n", 1)
-                if len(lines) == 2:
-                    heading = lines[0].strip()
-                    content = lines[1].strip()
-                else:
-                    heading = f"Део {i}"
-                    content = section.strip()
-                
-                # Truncate if too long
-                if len(content) > EMBED_FIELD_VALUE_LIMIT:
-                    content = content[:EMBED_FIELD_VALUE_LIMIT-20] + "\n\n*(скраћено)*"
-                
-                current_fields.append({
-                    "name": heading[:256],
-                    "value": content,
-                    "inline": False
-                })
-                
-                # Max 25 fields per embed
-                if len(current_fields) >= 25:
-                    continuation_embed = {
-                        "fields": current_fields,
-                        "color": 0x0099FF,
-                        "footer": {"text": f"SIP Elfak Bot • {len(embeds)+1}/..."}
-                    }
-                    embeds.append(continuation_embed)
-                    current_fields = []
-            
-            # Add remaining fields
-            if current_fields:
-                continuation_embed = {
-                    "fields": current_fields,
-                    "color": 0x0099FF,
-                    "footer": {"text": f"SIP Elfak Bot • {len(embeds)+1}/..."}
-                }
-                embeds.append(continuation_embed)
+    # Truncate content if needed to fit Discord limit
+    truncation_msg = "\n\n*(Остатак текста је на страници СИП-а)*"
+    max_content_length = EMBED_DESCRIPTION_LIMIT - len(truncation_msg)
+    
+    if len(article.content) > EMBED_DESCRIPTION_LIMIT:
+        # Find a good breaking point (paragraph or sentence)
+        preview = article.content[:max_content_length]
+        # Try to break at last paragraph
+        last_para = preview.rfind('\n\n')
+        if last_para > max_content_length // 2:
+            preview = article.content[:last_para]
         else:
-            # No headings - fall back to splitting by paragraphs
-            first_chunk = article.content[:EMBED_DESCRIPTION_LIMIT]
-            last_newline = first_chunk.rfind('\n\n')
-            if last_newline > EMBED_DESCRIPTION_LIMIT // 2:
-                first_chunk = article.content[:last_newline]
-                remaining = article.content[last_newline:].strip()
-            else:
-                remaining = article.content[EMBED_DESCRIPTION_LIMIT:].strip()
-            
-            first_embed = {
-                "author": {
-                    "name": "SIP Elfak",
-                    "url": BASE_URL,
-                },
-                "title": article.title[:256],
-                "url": article.url,
-                "description": first_chunk,
-                "color": 0x0099FF,
-                "timestamp": timestamp,
-                "footer": {"text": "SIP Elfak Bot • 1/..."}
-            }
-            
-            # Add metadata fields (date + category)
-            fields = []
-            if article.date:
-                fields.append({
-                    "name": "📅 Објављено",
-                    "value": article.date,
-                    "inline": True
-                })
-            if article.category:
-                fields.append({
-                    "name": "📂 Категорија",
-                    "value": article.category,
-                    "inline": True
-                })
-            
-            if fields:
-                first_embed["fields"] = fields
-            
-            if article.image_url:
-                first_embed["thumbnail"] = {"url": article.image_url}
-            
-            embeds.append(first_embed)
-            
-            # Split remaining content into field chunks
-            paragraphs = remaining.split('\n\n')
-            current_field_value = ""
-            continuation_fields = []
-            field_num = 1
-            
-            for para in paragraphs:
-                if len(current_field_value) + len(para) + 2 <= EMBED_FIELD_VALUE_LIMIT:
-                    current_field_value += para + "\n\n"
-                else:
-                    if current_field_value:
-                        continuation_fields.append({
-                            "name": f"Наставак {field_num}",
-                            "value": current_field_value.strip(),
-                            "inline": False
-                        })
-                        field_num += 1
-                    current_field_value = para + "\n\n"
-                
-                # Create new embed if we hit 25 fields
-                if len(continuation_fields) >= 25:
-                    continuation_embed = {
-                        "fields": continuation_fields,
-                        "color": 0x0099FF,
-                        "footer": {"text": f"SIP Elfak Bot • {len(embeds)+1}/..."}
-                    }
-                    embeds.append(continuation_embed)
-                    continuation_fields = []
-            
-            if current_field_value:
-                continuation_fields.append({
-                    "name": f"Наставак {field_num}",
-                    "value": current_field_value.strip(),
-                    "inline": False
-                })
-            
-            if continuation_fields:
-                continuation_embed = {
-                    "fields": continuation_fields,
-                    "color": 0x0099FF,
-                    "footer": {"text": f"SIP Elfak Bot • {len(embeds)+1}/..."}
-                }
-                embeds.append(continuation_embed)
+            # Try to break at last period
+            last_period = preview.rfind('.')
+            if last_period > max_content_length // 2:
+                preview = article.content[:last_period + 1]
+        
+        description = preview.strip() + truncation_msg
+    else:
+        description = article.content
     
-    # Update footer on last embed
-    if len(embeds) > 1:
-        embeds[-1]["footer"]["text"] = f"SIP Elfak Bot • {len(embeds)}/{len(embeds)}"
+    # Build single embed
+    embed = {
+        "author": {
+            "name": "SIP Elfak",
+            "url": BASE_URL,
+        },
+        "title": article.title[:256],
+        "url": article.url,
+        "description": description[:EMBED_DESCRIPTION_LIMIT],
+        "color": 0x0099FF,  # Brighter blue
+        "timestamp": timestamp,
+    }
     
-    # Send embeds
+    # Add metadata fields (date + category)
+    fields = []
+    if article.date:
+        fields.append({
+            "name": "📅 Објављено",
+            "value": article.date,
+            "inline": True
+        })
+    if article.category:
+        fields.append({
+            "name": "📂 Категорија",
+            "value": article.category,
+            "inline": True
+        })
+    
+    if fields:
+        embed["fields"] = fields
+    
+    # Add image or thumbnail
+    if article.image_url:
+        # If content is minimal (just image post), use large image
+        if len(article.content) < 100:
+            embed["image"] = {"url": article.image_url}
+        else:
+            # Otherwise use thumbnail to save space
+            embed["thumbnail"] = {"url": article.image_url}
+    
+    embed["footer"] = {
+        "text": "SIP Elfak Bot"
+    }
+    
+    embeds.append(embed)
+    
+    # Send all embeds in one payload to preserve order
+    # Discord allows up to 10 embeds per message
     try:
-        for i, embed in enumerate(embeds):
+        # Split into chunks of 10 embeds (Discord limit)
+        for chunk_idx in range(0, len(embeds), 10):
+            chunk = embeds[chunk_idx:chunk_idx + 10]
+            
             payload = {
-                "embeds": [embed],
+                "embeds": chunk,
                 "username": "Elfak SIP",
                 "avatar_url": "https://yt3.googleusercontent.com/ytc/AIdro_n4cTULTyyibS74QLgtHRRfo6p35NRl1xOp_jlxtqgjYQ=s900-c-k-c0x00ffffff-no-rj"
             }
@@ -958,12 +826,12 @@ async def send_discord_message(client: httpx.AsyncClient, article: Article):
             
             resp.raise_for_status()
             
-            if i == 0:
-                print(f"✅ Discord message sent: {article.title[:50]}")
+            if chunk_idx == 0:
+                print(f"✅ Discord message sent: {article.title[:50]} ({len(embeds)} embed(s))")
             
-            # Rate limit between embeds
-            if i < len(embeds) - 1:
-                await asyncio.sleep(0.5)
+            # Rate limit between chunks
+            if chunk_idx + 10 < len(embeds):
+                await asyncio.sleep(1.0)
         
     except httpx.HTTPStatusError as e:
         print(f"❌ Discord webhook HTTP error {e.response.status_code}: {e.response.text}")
@@ -1087,7 +955,7 @@ async def main():
         
         # Sort articles by date (oldest first)
         print(f"\n📤 Sorting {len(articles_to_send)} articles by date...")
-        articles_to_send.sort(key=lambda a: parse_serbian_date(a.date) or datetime.min.replace(tzinfo=SERBIA_TZ))
+        articles_to_send.sort(key=lambda a: parse_serbian_date(a.date) or datetime.max.replace(tzinfo=SERBIA_TZ))
         
         # Send to Discord in chronological order
         print(f"\n✉️  Sending {len(articles_to_send)} articles to Discord...")
