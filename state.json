@@ -21,6 +21,7 @@
     "https://sip.elfak.ni.ac.rs/article/kalendar/kalendar-aktivnosti-mas-2023-2024",
     "https://sip.elfak.ni.ac.rs/article/kalendar/kalendar-aktivnosti-mas-2024-2025",
     "https://sip.elfak.ni.ac.rs/article/kalendar/kalendar-aktivnosti-mas-2025-2026",
+    "https://sip.elfak.ni.ac.rs/article/kalendar/kalendar-aktivnosti-oas-2026-2027",
     "https://sip.elfak.ni.ac.rs/article/kalendar/kalendar-aktivnosti-prolece-2021",
     "https://sip.elfak.ni.ac.rs/article/kolokvijumi/kol-mat-2-2019",
     "https://sip.elfak.ni.ac.rs/article/kolokvijumi/kolkvijumi-2020-2021",
@@ -95,6 +96,7 @@
     "https://sip.elfak.ni.ac.rs/article/mas/nastava-mas-prolece-2025",
     "https://sip.elfak.ni.ac.rs/article/mas/obavestenje-podizanje-dokumentacije-mas-10-11-2022",
     "https://sip.elfak.ni.ac.rs/article/mas/overa-jesenjeg-upis-prolecnog-semestra-2021-2022",
+    "https://sip.elfak.ni.ac.rs/article/mas/plan-izvodjenja-nastave-mas-2026-27",
     "https://sip.elfak.ni.ac.rs/article/mas/plan-mas-2025-2026",
     "https://sip.elfak.ni.ac.rs/article/mas/plan-maste-2025",
     "https://sip.elfak.ni.ac.rs/article/mas/ponovni-upis-prva-godina-mas-2021-2022",
@@ -117,6 +119,7 @@
     "https://sip.elfak.ni.ac.rs/article/nastava/obavestenje-praznik-racunarstvo-i-informatika",
     "https://sip.elfak.ni.ac.rs/article/nastava/odluka-o-usvajanju-izmena-plana-izvodjenja-nastave-2024-2025",
     "https://sip.elfak.ni.ac.rs/article/nastava/odluka-plenum-2024",
+    "https://sip.elfak.ni.ac.rs/article/nastava/plan-izvodjenja-nastave-oas-2026-2027",
     "https://sip.elfak.ni.ac.rs/article/nastava/pocetak-nastave-1-godina-2025",
     "https://sip.elfak.ni.ac.rs/article/nastava/pocetak-nastave-2025",
     "https://sip.elfak.ni.ac.rs/article/nastava/prezentacija-modula-oas-2025",
@@ -160,6 +163,7 @@
     "https://sip.elfak.ni.ac.rs/article/ostalo/izmena-lozinke-sip-2023",
     "https://sip.elfak.ni.ac.rs/article/ostalo/izrada-diplome-studenti201819-2022-23",
     "https://sip.elfak.ni.ac.rs/article/ostalo/javni-poziv-mntri-2026",
+    "https://sip.elfak.ni.ac.rs/article/ostalo/kalendar-aktivnosti-za-mas-2026-2027",
     "https://sip.elfak.ni.ac.rs/article/ostalo/konferencija-o-svemirskoj-nauci-i-tehnologiji",
     "https://sip.elfak.ni.ac.rs/article/ostalo/kurs-red-hat-2026",
     "https://sip.elfak.ni.ac.rs/article/ostalo/launcher-akcelerator-program",
@@ -288,5 +292,5 @@
     "https://sip.elfak.ni.ac.rs/article/upis-naredne-godine-oas/uslovi-upisa-na-vise-godine-2024-2025",
     "https://sip.elfak.ni.ac.rs/article/upis-naredne-godine-oas/zahtev-oslobadjanje-placanja-skolarine-2024-2025"
   ],
-  "last_checked": "2026-09-28T20:54:56.105113+00:00"
+  "last_checked": "2026-09-29T19:42:18.335333+00:00"
 }
